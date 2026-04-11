@@ -1,0 +1,79 @@
+service: pdf-generator-api
+
+frameworkVersion: "4"
+
+package:
+  patterns:
+    - src/utils/template.html
+
+plugins:
+  - serverless-offline
+
+build:
+  esbuild:
+    bundle: true
+    minify: false
+    sourcemap: false
+    target: node22
+
+provider:
+  name: aws
+  runtime: nodejs22.x
+  stage: ${opt:stage, "dev"}
+  region: ${opt:region, "us-east-1"}
+  timeout: 29
+  memorySize: 256
+  logRetentionInDays: 1
+  httpApi:
+    throttle:
+      burstLimit: 1 # máximo de requisições simultâneas em burst
+      rateLimit: 1 # requisições por segundo (sustentado)
+
+  environment:
+    APP_STAGE: ${sls:stage}
+    NODE_ENV: ${env:NODE_ENV, "production"}
+    BUCKET_NAME: ${env:BUCKET_NAME}
+    AWS_S3_REGION: ${env:AWS_S3_REGION, self:provider.region}
+    CHROMIUM_BIN_PATH: ${env:CHROMIUM_BIN_PATH, ""}
+    CHROMIUM_PACK_URL: ${env:CHROMIUM_PACK_URL, ""}
+
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - s3:PutObject
+            - s3:GetObject
+          Resource: arn:aws:s3:::${env:BUCKET_NAME}/*
+        - Effect: Allow
+          Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+          Resource: "*"
+
+functions:
+  generatePdf:
+    handler: handler.generatePDF
+    description: Gera um PDF a partir dos dados recebidos na requisicao
+    events:
+      - httpApi:
+          path: /generate-pdf
+          method: POST
+
+resources:
+  Resources:
+    PdfBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${env:BUCKET_NAME}
+        LifecycleConfiguration:
+          Rules:
+            - Id: DeleteOldPDFs
+              Status: Enabled
+              ExpirationInDays: 7
+
+custom:
+  serverless-offline:
+    httpPort: 3000
+    noPrependStageInUrl: true
