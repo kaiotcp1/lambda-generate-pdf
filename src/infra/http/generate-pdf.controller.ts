@@ -15,6 +15,11 @@ export class GeneratePdfController {
         throw HttpError.badRequest("Request body is required");
       }
 
+      // Rejeita payloads acima de 32KB antes de parsear — impede Chromium de processar inputs gigantes
+      if (Buffer.byteLength(event.body, "utf8") > 32 * 1024) {
+        throw HttpError.badRequest("Request body too large");
+      }
+
       let raw: unknown;
       try {
         raw = JSON.parse(event.body);

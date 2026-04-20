@@ -24,11 +24,6 @@ provider:
   timeout: 29
   memorySize: 512
   logRetentionInDays: 1
-  httpApi:
-    throttle:
-      burstLimit: 1 # máximo de requisições simultâneas em burst
-      rateLimit: 1 # requisições por segundo (sustentado)
-
   environment:
     APP_STAGE: ${sls:stage}
     NODE_ENV: ${env:NODE_ENV, "production"}
@@ -67,6 +62,11 @@ resources:
       Type: AWS::S3::Bucket
       Properties:
         BucketName: ${env:BUCKET_NAME}
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: true
+          BlockPublicPolicy: true
+          IgnorePublicAcls: true
+          RestrictPublicBuckets: true
         LifecycleConfiguration:
           Rules:
             - Id: DeleteOldPDFs
