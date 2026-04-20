@@ -9,98 +9,71 @@
 ![Puppeteer](https://img.shields.io/badge/puppeteer-pdf%20generation-40B5A4?style=flat-square&logo=puppeteer&logoColor=white)
 ![GitHub Actions](https://img.shields.io/badge/github%20actions-ci%2Fcd-2088FF?style=flat-square&logo=githubactions&logoColor=white)
 
-API serverless para gerar PDFs sob demanda com **AWS Lambda + Puppeteer + S3**, estruturada com **Clean Architecture** e empacotada com **Serverless Framework v4**.
-.
+API serverless para geracao de PDFs sob demanda com AWS Lambda, Puppeteer e Amazon S3.
 
-A proposta foi construir um serviço pequeno, objetivo e fácil de revisar, mas com decisões de arquitetura e operação próximas de um ambiente real. A intenção é que o repositório funcione como uma amostra prática de como eu estruturo integrações serverless na AWS, com foco em clareza, deploy e tratamento de casos operacionais.
+O projeto recebe um payload HTTP com os dados do documento, gera um PDF a partir de um template HTML, faz upload do arquivo para o S3 e devolve uma URL temporaria para download.
 
-## Motivação
+## Visao Geral
 
-A ideia deste projeto é resolver um problema comum em produtos B2B e operações internas:
+### O que a API faz
 
-- receber dados transacionais via API
-- montar um documento visualmente consistente
-- gerar um PDF no backend
-- armazenar o artefato com segurança
-- retornar uma URL temporária para download
+- recebe dados estruturados via `POST /generate-pdf`
+- valida o payload de entrada
+- monta o HTML do documento
+- gera o PDF no backend
+- faz upload do arquivo para um bucket S3
+- retorna uma URL pre-assinada para acesso temporario ao arquivo
 
-Em vez de acoplar isso a um monólito ou a uma aplicação web tradicional, a solução usa um fluxo serverless, mais adequado para workloads event-driven e burst de geração.
+### Cenario de uso
 
-Além do problema funcional em si, houve uma motivação adicional de portfólio: reunir em um projeto autoral uma combinação de serviços que uso rotineiramente.
+Este projeto foi pensado para cenarios em que uma empresa B2B precisa gerar documentos sob demanda no backend, como:
 
-## Por Que HTTP API e Não REST API
-
-A escolha por **API Gateway HTTP API** foi intencional.
-
-Para este caso de uso, eu não preciso de:
-- API Keys
-- Usage Plans
-- throttling por consumidor
-- features legadas do API Gateway REST
-
-Eu preciso de:
-- menor custo operacional
-- menor latência
-- configuração mais simples
-- integração direta com Lambda
-
-Por isso, **HTTP API** faz mais sentido do que **REST API** neste projeto. Em um produto real com múltiplos clientes externos, monetização por chave, quotas ou políticas avançadas, eu reavaliaria essa escolha.
-
-## Stack
-
-- Node.js 22
-- TypeScript
-- Serverless Framework v4
-- AWS Lambda
-- API Gateway HTTP API
-- Puppeteer Core
-- `@sparticuz/chromium-min`
-- AWS SDK v3
-- Amazon S3
-- Zod
-- Pino
-- GitHub Actions
+- comprovantes de entrega
+- recibos ou documentos operacionais
+- relatorios gerados a partir de uma requisicao HTTP
 
 ## Arquitetura
 
-O projeto segue uma separação simples inspirada em Clean Architecture:
+O projeto segue uma organizacao inspirada em Clean Architecture, separando regras de negocio, aplicacao e integracoes.
 
 ```text
 src/
-|-- app/       # casos de uso, DTOs e erros de aplicação
-|-- domain/    # entidades de domínio
-|-- infra/     # adapters AWS, config e controller HTTP
-|-- factories/ # composição das dependências
+|-- app/       # casos de uso, DTOs, servicos e erros de aplicacao
+|-- domain/    # entidades de dominio
+|-- infra/     # HTTP, AWS, configuracao e adaptadores
+|-- factories/ # composicao de dependencias
 `-- utils/     # logger e template HTML
 ```
 
-Regra de dependência:
-
-```text
-Domain <- App <- Infra <- Handler
-```
-
-Isso mantém o núcleo da aplicação relativamente isolado de framework, Lambda e SDK da AWS.
-
-## Fluxo da Requisição
+Fluxo principal da requisicao:
 
 ```text
 POST /generate-pdf
   -> Lambda handler
   -> Controller HTTP
-  -> validação com Zod
-  -> use case de geração
+  -> Validacao do payload
+  -> Use case de geracao
   -> HTML builder
   -> Puppeteer + Chromium
-  -> upload para S3
-  -> URL pré-assinada
+  -> Upload para S3
+  -> URL pre-assinada na resposta
 ```
+
+Arquivos centrais do projeto:
+
+- [handler.ts](/c:/projetos/pdf-generator/handler.ts)
+- [serverless.yml](/c:/projetos/pdf-generator/serverless.yml)
+- [src/infra/http/generate-pdf.controller.ts](/c:/projetos/pdf-generator/src/infra/http/generate-pdf.controller.ts)
+- [src/app/use-cases/generate-pdf.use-case.ts](/c:/projetos/pdf-generator/src/app/use-cases/generate-pdf.use-case.ts)
+- [src/app/services/pdf-builder.service.ts](/c:/projetos/pdf-generator/src/app/services/pdf-builder.service.ts)
+- [src/app/services/html-builder.service.ts](/c:/projetos/pdf-generator/src/app/services/html-builder.service.ts)
+- [src/infra/cloud/s3.adapter.ts](/c:/projetos/pdf-generator/src/infra/cloud/s3.adapter.ts)
 
 ## Endpoint
 
 ### `POST /generate-pdf`
 
-Exemplo de payload:
+Payload de exemplo:
 
 ```json
 {
@@ -120,7 +93,7 @@ Exemplo de payload:
       "unit": "UN"
     }
   ],
-  "notes": "Entregue em mãos ao destinatário, sem avarias."
+  "notes": "Entregue em maos ao destinatario, sem avarias."
 }
 ```
 
@@ -134,65 +107,32 @@ Resposta esperada:
 ```
 
 Erros conhecidos:
-- `400` quando o body está ausente ou inválido
-- `422` quando o schema falha
-- `500` quando falha a geração do PDF ou o upload para o S3
 
-## Public Test Endpoint
+- `400` quando o body esta ausente ou invalido
+- `422` quando a validacao do schema falha
+- `500` quando ocorre erro na geracao do PDF ou no upload para o S3
 
-```md
-### Live Demo
+## Demo
 
-`POST https://vt5duuq2o5.execute-api.us-east-1.amazonaws.com/generate-pdf`
+Endpoint publico de teste:
 
+```text
+POST https://vt5duuq2o5.execute-api.us-east-1.amazonaws.com/generate-pdf
 ```
 
-## Decisões Técnicas
+## Como Executar Localmente
 
-### 1. Chromium separado do código
-
-O projeto usa `@sparticuz/chromium-min` para evitar empacotar um binário gigante dentro da Lambda. O runtime baixa ou resolve o pack compatível em tempo de execução.
-
-Isso reduz o artefato da função, mas exige disciplina de versionamento:
-- `puppeteer-core`
-- `@sparticuz/chromium-min`
-- `CHROMIUM_PACK_URL`
-
-Esses três precisam estar coerentes.
-
-### 2. URL pré-assinada em vez de bucket público
-
-O PDF nunca fica público. O S3 armazena o arquivo e a API retorna uma **pre-signed URL** com tempo de expiração.
-
-Isso melhora:
-- segurança
-- controle de acesso
-- aderência a cenários corporativos
-
-### 3. Validação explícita na borda
-
-A entrada HTTP é validada com **Zod** no controller. Assim:
-- a Lambda responde erro sem entrar no caso de uso
-- o domínio recebe dados já conformes
-- a resposta de erro fica mais previsível
-
-### 4. Logger estruturado
-
-Em produção, os logs são estruturados para CloudWatch. Em desenvolvimento, o projeto usa saída legível com `pino-pretty`.
-
-## Execução Local
-
-### Pré-requisitos
+### Pre-requisitos
 
 - Node.js 22
 - npm
-- uma conta AWS
-- um bucket S3 existente para testes locais com S3 real, ou um nome de bucket único para o primeiro deploy via CloudFormation
-- Chrome/Chromium local
+- conta AWS com credenciais configuradas
+- bucket S3 para testes
+- Chrome ou Chromium disponivel localmente
 
-### Variáveis de ambiente
+### Variaveis de ambiente
 
-Crie um `.env` a partir de `.env.example`.
+Crie um arquivo `.env` com base no `.env.example`.
 
 Exemplo:
 
@@ -201,17 +141,10 @@ BUCKET_NAME=pdf-generator-yourname-dev
 AWS_S3_REGION=us-east-1
 CHROMIUM_BIN_PATH=C:\Chromium\chrome-win\chrome.exe
 CHROMIUM_PACK_URL=https://github.com/Sparticuz/chromium/releases/download/v147.0.0/chromium-v147.0.0-pack.x64.tar
-LOG_LEVEL=debug
-NODE_ENV=development
+LOG_LEVEL=info
 ```
 
-Observações:
-- `AWS_S3_REGION` deve ser a **região real do bucket**
-- `CHROMIUM_PACK_URL` deve ser compatível com a versão instalada de `@sparticuz/chromium-min` no repositório
-- em `serverless offline`, o bucket precisa existir se você estiver usando S3 real
-- no CI, a região está fixa em `us-east-1`; localmente você pode usar outra região, desde que `AWS_S3_REGION` bata com a região real do bucket
-
-### Rodando
+### Rodando o projeto
 
 ```bash
 npm ci
@@ -220,29 +153,23 @@ npm run lint
 npm run dev
 ```
 
+Com a aplicacao em execucao, a API fica disponivel localmente via `serverless offline`.
+
 ## Deploy
 
-O deploy é feito com:
+Deploy por ambiente:
 
 ```bash
 npm run deploy:dev
 npm run deploy:prod
 ```
 
-O repositório também possui workflow de GitHub Actions para deploy por branch:
-- `dev` -> ambiente de desenvolvimento
-- `main` -> ambiente de produção
+O projeto tambem possui pipeline de GitHub Actions para deploy por branch:
 
-O `serverless.yml` também cria o bucket via CloudFormation durante o deploy. Por isso, cada ambiente deve usar um `BUCKET_NAME` único. Se o nome já existir fora da stack, o deploy falha.
+- `dev` para ambiente de desenvolvimento
+- `main` para ambiente de producao
 
-## GitHub Environments e Secrets
-
-O workflow usa **GitHub Environments**:
-
-- `development` para a branch `dev`
-- `production` para a branch `main`
-
-Em cada environment, configure estes mesmos secrets:
+Secrets esperados nos environments do GitHub:
 
 - `AWS_ACCESS_KEY_ID`
 - `AWS_SECRET_ACCESS_KEY`
@@ -250,51 +177,60 @@ Em cada environment, configure estes mesmos secrets:
 - `CHROMIUM_PACK_URL`
 - `BUCKET_NAME`
 
-A ideia é manter os mesmos nomes de secrets em ambos os environments e trocar apenas os valores.
+## Imagens do Projeto
 
-A região está padronizada como `us-east-1` no workflow.
+Esta seção ajuda a visualizar o fluxo completo da aplicação, da requisicao ate o arquivo final no bucket.
 
+### Requisicao e resposta
 
-## O Que Este Projeto Demonstra
+Exemplo de chamada com HTTPie, incluindo o body enviado para a API e o retorno com a URL do arquivo:
 
-- capacidade de desenhar uma API com responsabilidade única
-- uso pragmático de arquitetura em projeto pequeno
-- integração com AWS sem acoplamento excessivo ao framework
-- tratamento de erros operacionais reais, como mismatch de região do S3
-- preocupação com segurança, custo e deploy
+![HTTPie request](docs/images/httpie_request_1.png)
 
-Não é um “toy project” no sentido de só devolver um hello world. Ele passa por problemas reais de engenharia:
-- empacotamento de Chromium
-- diferença entre ambiente local e Lambda
-- composição de infraestrutura
-- artefatos no S3
-- validação e observabilidade
+### AWS Console
 
-## Próximos Passos
+Visualizacao do bucket e dos arquivos gerados no S3:
 
-Melhorias naturais para evoluir este projeto:
+![AWS Console](docs/images/aws_console_1.png)
 
-1. testes unitários para use case, controller e adapters
-2. testes de integração locais com LocalStack
-3. CI com validação de deploy por pull request
-4. autenticação e autorização para consumo externo
-5. geração de múltiplos documentos por lote
-6. observabilidade com métricas e tracing (x-ray)
+### PDF gerado
 
-## Estrutura Atual
+Resultado final do processo, com o layout renderizado e a foto presente no documento:
 
-Arquivos principais:
+![PDF generated](docs/images/pdf_image_1.png)
 
-- [handler.ts](/c:/projetos/pdf-generator/handler.ts)
-- [serverless.yml](/c:/projetos/pdf-generator/serverless.yml)
-- [src/infra/http/generate-pdf.controller.ts](/c:/projetos/pdf-generator/src/infra/http/generate-pdf.controller.ts)
-- [src/app/use-cases/generate-pdf.use-case.ts](/c:/projetos/pdf-generator/src/app/use-cases/generate-pdf.use-case.ts)
-- [src/app/services/pdf-builder.service.ts](/c:/projetos/pdf-generator/src/app/services/pdf-builder.service.ts)
-- [src/infra/cloud/s3.adapter.ts](/c:/projetos/pdf-generator/src/infra/cloud/s3.adapter.ts)
-- [docs/PDF_GENERATOR_PROJECT_GUIDE.md](/c:/projetos/pdf-generator/docs/PDF_GENERATOR_PROJECT_GUIDE.md)
+## O Que Este Projeto Mostra
+
+- construcao de uma API serverless com foco em uma responsabilidade clara
+- organizacao de codigo voltada a manutencao e leitura
+- integracao entre Lambda, API Gateway, Puppeteer e S3
+- fluxo completo de geracao, armazenamento e acesso a documentos
+- deploy estruturado para ambientes distintos
+
+## Estrutura do Repositorio
+
+```text
+.
+|-- docs/
+|   `-- images/
+|-- src/
+|   |-- app/
+|   |-- domain/
+|   |-- factories/
+|   |-- infra/
+|   `-- utils/
+|-- handler.ts
+|-- package.json
+|-- README.md
+`-- serverless.yml
+```
 
 ## Status
 
-Projeto funcional em evolução, com fluxo principal implementado e pipeline pronto para versionamento e deploy.
+Projeto funcional, com fluxo principal implementado de ponta a ponta:
 
-Como peça de portfólio, ele foi desenhado para ser lido rapidamente por recrutadores e entrevistadores, mas com profundidade técnica suficiente para sustentar perguntas sobre arquitetura, operação, trade-offs e uso real de AWS em contexto serverless.
+- recebimento da requisicao
+- validacao da entrada
+- geracao do PDF
+- upload para o S3
+- retorno de URL temporaria
